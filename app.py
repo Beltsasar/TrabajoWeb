@@ -5,17 +5,14 @@ import os
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.dialects.postgresql import UUID
-import uuid
+from sqlalchemy.dialects.postgresql import UUID # Aunque no se usa UUID en tu modelo actual, lo mantengo por si acaso
+import uuid # Mantengo uuid por si lo usas en el futuro para IDs
 
 app = Flask(__name__)
 
 # Configuración de la base de datos
 # Render automáticamente inyecta la DATABASE_URL para PostgreSQL
 DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://user:password@localhost:5432/mydatabase')
-
-# Si estás ejecutando localmente y quieres un SQLite simple para pruebas sin Render DB
-# DATABASE_URL = 'sqlite:///local_test.db' # Para pruebas locales rápidas sin Docker o PostgreSQL
 
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
@@ -24,7 +21,7 @@ Base = declarative_base()
 # Definición de modelos para la base de datos
 class Alumno(Base):
     __tablename__ = 'alumnos'
-    Id = Column(Integer, primary_key=True, autoincrement=True)
+    Id = Column(Integer, primary_key=True, autoincrement=True) # Mantengo Id como Integer, autoincrementado
     Tipo_documento = Column(String(50))
     Documento = Column(String(50), unique=True, nullable=False) # RUT debe ser único
     Nombre = Column(String(100), nullable=False)
@@ -34,7 +31,7 @@ class Alumno(Base):
     Telefono = Column(String(50))
     Producto = Column(String(100))
     RutEmpresa = Column(String(50))
-    Asistencia = Column(Integer, default=0)
+    Asistencia = Column(Integer, default=0) # Asistencia como Integer
     Nota = Column(Text)
     FechaDeCurso = Column(DateTime)
     Solicitud = Column(String(100))
@@ -43,14 +40,20 @@ class Alumno(Base):
 class Asistencia(Base):
     __tablename__ = 'asistencias'
     Id = Column(Integer, primary_key=True, autoincrement=True)
-    AlumnoID = Column(Integer, nullable=False) # Foreign Key simulada
+    AlumnoID = Column(Integer, nullable=False) # Foreign Key simulada (podría ser real con ForeignKey)
     Curso = Column(String(100))
     Fecha = Column(DateTime, nullable=False)
     Hora = Column(String(20), nullable=False) # Guardamos la hora como string para simplicidad, o podrías usar Time
 
 # Asegura que las tablas se creen si no existen
+# Mueve la llamada a create_tables() aquí, fuera del if __name__ == '__main__':
+# Esto garantiza que se ejecute cuando Gunicorn carga la aplicación.
 def create_tables():
+    print("INFO: Intentando crear tablas de la base de datos...")
     Base.metadata.create_all(engine)
+    print("INFO: Creación de tablas intentada.")
+
+create_tables() # <--- ¡IMPORTANTE! Mover esta llamada aquí.
 
 # Función para limpiar y formatear RUT
 def clean_rut(rut):
@@ -139,8 +142,8 @@ def register_attendance():
         return jsonify({
             'message': 'Asistencia registrada con éxito.',
             'nombre': f"{alumno_found.Nombre} {alumno_found.ApellidoP or ''}".strip(),
-            'fecha': current_time.strftime('%Y-%m-%d'),
-            'hora': current_time.strftime('%H:%M:%S')
+            'fecha': new_attendance['Fecha'],
+            'hora': new_attendance['Hora']
         }), 200
 
     except Exception as e:
@@ -244,32 +247,31 @@ def get_course_attendance():
 
         return jsonify(course_counts)
     except Exception as e:
+        session.rollback() # Siempre hacer rollback en caso de error
         print(f"Error al obtener asistencias por curso: {e}")
         return jsonify({'error': f'Error interno del servidor: {str(e)}'}), 500
     finally:
         session.close()
  
-# Dentro de app.py, después de la definición de modelos
 def load_initial_data_from_excel_to_db():
     try:
         df_alumnos_excel = pd.read_excel('alumnos.xlsx', sheet_name='Alumnos')
         session = Session()
         for index, row in df_alumnos_excel.iterrows():
-            # Limpiar y convertir datos del Excel
             rut = clean_rut(str(row.get('Documento', '')))
-            
             fecha_curso = row.get('FechaDeCurso')
-            if pd.isna(fecha_curso): # Check for NaT or NaNs
+            if pd.isna(fecha_curso):
                 fecha_curso = None
             elif isinstance(fecha_curso, (datetime, pd.Timestamp)):
                 fecha_curso = fecha_curso.to_pydatetime()
-            else: # Try to parse string dates
+            else:
                 try:
                     fecha_curso = datetime.strptime(str(fecha_curso), '%Y-%m-%d')
                 except (ValueError, TypeError):
                     fecha_curso = None
 
-
+            # Asegúrate de que los nombres de columna del Excel coincidan o mapeen correctamente
+            # por ejemplo, 'Teléfono' en Excel a 'Telefono' en el modelo
             alumno = Alumno(
                 Tipo_documento=row.get('Tipo documento'),
                 Documento=rut,
@@ -277,14 +279,14 @@ def load_initial_data_from_excel_to_db():
                 ApellidoM=row.get('ApellidoM'),
                 ApellidoP=row.get('ApellidoP'),
                 Mail=row.get('Mail'),
-                Telefono=row.get('Teléfono'), # Asegúrate que el nombre de la columna en tu Excel sea 'Teléfono' o ajusta aquí
+                Telefono=row.get('Teléfono'), # Esto mapea desde 'Teléfono' en tu Excel
                 Producto=row.get('Producto'),
                 RutEmpresa=row.get('RutEmpresa'),
                 Asistencia=int(row.get('Asistencia', 0)),
                 Nota=row.get('Nota'),
                 FechaDeCurso=fecha_curso,
                 Solicitud=row.get('Solicitud'),
-                N_OP=row.get('N° OP') # Asegúrate que el nombre de la columna en tu Excel sea 'N° OP' o ajusta aquí
+                N_OP=row.get('N° OP') # Esto mapea desde 'N° OP' en tu Excel
             )
             session.add(alumno)
         session.commit()
@@ -295,9 +297,7 @@ def load_initial_data_from_excel_to_db():
     finally:
         session.close()
 
-# Luego, en el if __name__ == '__main__': block:
 if __name__ == '__main__':
-    create_tables()
-    # Descomenta la siguiente línea SOLO si quieres cargar los datos del Excel por PRIMERA VEZ
-    # load_initial_data_from_excel_to_db() 
+    # Esta parte solo se ejecuta si corres 'python app.py' directamente
+    # La creación de tablas ya se maneja fuera de este bloque para Render
     app.run(debug=True, port=os.getenv('PORT', 5000))
