@@ -8,8 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 
-app = Flask(__name__)
-
+app = Flask(__name__, template_folder='Templates') 
 # Configuración de la base de datos
 # Render automáticamente inyecta la DATABASE_URL para PostgreSQL
 DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://user:password@localhost:5432/mydatabase')
