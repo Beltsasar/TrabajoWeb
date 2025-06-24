@@ -5,13 +5,12 @@ import os
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.dialects.postgresql import UUID # Aunque no se usa UUID en tu modelo actual, lo mantengo por si acaso
-import uuid # Mantengo uuid por si lo usas en el futuro para IDs
+# from sqlalchemy.dialects.postgresql import UUID # Descomenta si realmente usas UUIDs en algún modelo
+# import uuid # Descomenta si realmente usas UUIDs en algún modelo
 
 app = Flask(__name__)
 
 # Configuración de la base de datos
-# Render automáticamente inyecta la DATABASE_URL para PostgreSQL
 DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://user:password@localhost:5432/mydatabase')
 
 engine = create_engine(DATABASE_URL)
@@ -21,9 +20,9 @@ Base = declarative_base()
 # Definición de modelos para la base de datos
 class Alumno(Base):
     __tablename__ = 'alumnos'
-    Id = Column(Integer, primary_key=True, autoincrement=True) # Mantengo Id como Integer, autoincrementado
+    Id = Column(Integer, primary_key=True, autoincrement=True)
     Tipo_documento = Column(String(50))
-    Documento = Column(String(50), unique=True, nullable=False) # RUT debe ser único
+    Documento = Column(String(50), unique=True, nullable=False)
     Nombre = Column(String(100), nullable=False)
     ApellidoM = Column(String(100))
     ApellidoP = Column(String(100))
@@ -31,7 +30,7 @@ class Alumno(Base):
     Telefono = Column(String(50))
     Producto = Column(String(100))
     RutEmpresa = Column(String(50))
-    Asistencia = Column(Integer, default=0) # Asistencia como Integer
+    Asistencia = Column(Integer, default=0)
     Nota = Column(Text)
     FechaDeCurso = Column(DateTime)
     Solicitud = Column(String(100))
@@ -40,24 +39,27 @@ class Alumno(Base):
 class Asistencia(Base):
     __tablename__ = 'asistencias'
     Id = Column(Integer, primary_key=True, autoincrement=True)
-    AlumnoID = Column(Integer, nullable=False) # Foreign Key simulada (podría ser real con ForeignKey)
+    AlumnoID = Column(Integer, nullable=False)
     Curso = Column(String(100))
     Fecha = Column(DateTime, nullable=False)
-    Hora = Column(String(20), nullable=False) # Guardamos la hora como string para simplicidad, o podrías usar Time
+    Hora = Column(String(20), nullable=False)
 
-# Asegura que las tablas se creen si no existen
 def create_tables():
     print("INFO: Intentando crear tablas de la base de datos...")
-    Base.metadata.create_all(engine)
-    print("INFO: Creación de tablas intentada.")
+    try:
+        Base.metadata.create_all(engine)
+        print("INFO: Creación de tablas intentada.")
+    except Exception as e:
+        print(f"ERROR: No se pudieron crear las tablas: {e}")
+
 
 # Función para limpiar y formatear RUT
 def clean_rut(rut):
-    # Elimina puntos y guiones, convierte a mayúsculas
-    return rut.replace('.', '').replace('-', '').upper()
+    return str(rut).replace('.', '').replace('-', '').upper() # Asegurar que 'rut' es string
 
 def validate_rut(rut):
-    rut = rut.upper().replace(".", "").replace("-", "")
+    # Ya tienes la función aquí, la he omitido para concisión
+    rut = str(rut).upper().replace(".", "").replace("-", "")
     
     if not rut[:-1].isdigit():
         return False
@@ -84,6 +86,7 @@ def validate_rut(rut):
         return dv == '0'
     else:
         return dv == str(res)
+
 
 @app.route('/')
 def index():
@@ -121,25 +124,26 @@ def register_attendance():
         if not alumno_found:
             return jsonify({'error': 'RUT no encontrado en la base de datos de alumnos.'}), 404
 
-        # Registrar asistencia
         current_time = datetime.now()
         new_attendance = Asistencia(
             AlumnoID=alumno_found.Id,
-            Curso='Curso por Defecto', # Asume un curso por defecto, o agrégalo a la lógica
+            Curso='Curso por Defecto',
             Fecha=current_time,
             Hora=current_time.strftime('%H:%M:%S')
         )
         session.add(new_attendance)
         
-        # Incrementar asistencia del alumno
         alumno_found.Asistencia = (alumno_found.Asistencia or 0) + 1
         session.commit()
 
+        # Asegúrate de que new_attendance.Fecha y new_attendance.Hora son cadenas formateadas
+        # El error original era porque estabas tratando new_attendance como un diccionario,
+        # pero es un objeto Asistencia.
         return jsonify({
             'message': 'Asistencia registrada con éxito.',
             'nombre': f"{alumno_found.Nombre} {alumno_found.ApellidoP or ''}".strip(),
-            'fecha': new_attendance['Fecha'],
-            'hora': new_attendance['Hora']
+            'fecha': new_attendance.Fecha.strftime('%Y-%m-%d'), # Acceder a los atributos del objeto
+            'hora': new_attendance.Hora
         }), 200
 
     except Exception as e:
@@ -165,15 +169,13 @@ def get_alumnos():
         for alumno in alumnos:
             alumno_dict = {col.name: getattr(alumno, col.name) for col in alumno.__table__.columns}
             
-            # Formatear FechaDeCurso a YYYY-MM-DD o None
             if alumno_dict['FechaDeCurso']:
                 alumno_dict['FechaDeCurso'] = alumno_dict['FechaDeCurso'].strftime('%Y-%m-%d')
             else:
                 alumno_dict['FechaDeCurso'] = None
             
-            # Ajustar nombres de columnas si son diferentes de JS (ej: Teléfono vs Telefono)
-            alumno_dict['Teléfono'] = alumno_dict.pop('Telefono', None) # Renombrar si es necesario para el frontend
-            alumno_dict['N° OP'] = alumno_dict.pop('N_OP', None) # Renombrar si es necesario
+            alumno_dict['Teléfono'] = alumno_dict.pop('Telefono', None)
+            alumno_dict['N° OP'] = alumno_dict.pop('N_OP', None)
             
             alumnos_list.append(alumno_dict)
 
@@ -196,7 +198,6 @@ def update_alumno(alumno_id):
             return jsonify({'error': 'Alumno no encontrado.'}), 404
 
         for key, value in data.items():
-            # Mapear nombres de columnas del frontend al backend si son diferentes
             db_key = key
             if key == 'Teléfono':
                 db_key = 'Telefono'
@@ -210,12 +211,11 @@ def update_alumno(alumno_id):
                     try:
                         setattr(alumno, db_key, datetime.strptime(value, '%Y-%m-%d'))
                     except ValueError:
-                        setattr(alumno, db_key, None) # Si el formato es incorrecto, establecer como None
+                        setattr(alumno, db_key, None)
                 else:
-                    # Convertir Asistencia a int si es necesario
                     if db_key == 'Asistencia' and value is not None:
                         setattr(alumno, db_key, int(value))
-                    elif value == "": # Manejar strings vacíos como None para columnas que pueden ser nulas
+                    elif value == "":
                         setattr(alumno, db_key, None)
                     else:
                         setattr(alumno, db_key, value)
@@ -243,25 +243,24 @@ def get_course_attendance():
 
         return jsonify(course_counts)
     except Exception as e:
-        session.rollback() # Siempre hacer rollback en caso de error
+        session.rollback()
         print(f"Error al obtener asistencias por curso: {e}")
         return jsonify({'error': f'Error interno del servidor: {str(e)}'}), 500
     finally:
         session.close()
  
 def load_initial_data_from_excel_to_db():
+    session = None # Inicializamos session a None
     try:
         df_alumnos_excel = pd.read_excel('alumnos.xlsx', sheet_name='Alumnos')
-        session = Session()
+        session = Session() # Solo creamos la sesión si la lectura del Excel es exitosa
         for index, row in df_alumnos_excel.iterrows():
             rut = clean_rut(str(row.get('Documento', '')))
             
-            # --- ¡IMPORTANTE! Agregamos esta verificación para evitar duplicados ---
             existing_alumno = session.query(Alumno).filter_by(Documento=rut).first()
             if existing_alumno:
                 print(f"INFO: Alumno con RUT {rut} ya existe. Saltando inserción para evitar duplicados.")
-                continue # Saltar esta fila si el alumno ya existe
-            # ---------------------------------------------------------------------
+                continue
 
             fecha_curso = row.get('FechaDeCurso')
             if pd.isna(fecha_curso):
@@ -294,16 +293,24 @@ def load_initial_data_from_excel_to_db():
         session.commit()
         print("Datos de alumnos cargados exitosamente desde Excel a PostgreSQL.")
     except Exception as e:
-        session.rollback()
+        # Solo intenta hacer rollback si la sesión se creó
+        if session:
+            session.rollback()
         print(f"Error al cargar datos desde Excel: {e}")
     finally:
-        session.close()
+        # Solo intenta cerrar la sesión si se creó
+        if session:
+            session.close()
 
 # Esto es lo que Gunicorn ejecutará al cargar tu aplicación
 create_tables() # Siempre se ejecuta para crear tablas si no existen
-load_initial_data_from_excel_to_db() # <--- ¡IMPORTANTE! Mover esta llamada aquí para que se ejecute en Render.
+
+# Manejo de errores para la carga inicial de datos desde Excel
+# Esto es importante para que la aplicación no falle al iniciar si el Excel no se puede leer
+try:
+    load_initial_data_from_excel_to_db()
+except Exception as e:
+    print(f"CRÍTICO: Falló la carga inicial de datos. La aplicación podría no funcionar correctamente. Error: {e}")
 
 if __name__ == '__main__':
-    # Esta parte solo se ejecuta si corres 'python app.py' directamente
-    # La creación de tablas y la carga de datos ya se manejan fuera de este bloque para Render
     app.run(debug=True, port=os.getenv('PORT', 5000))
