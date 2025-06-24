@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for
-import pandas as pd # pandas se mantiene para alguna lógica si es necesaria, pero no para la DB directamente
+import pandas as pd
 from datetime import datetime
 import os
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
@@ -46,14 +46,10 @@ class Asistencia(Base):
     Hora = Column(String(20), nullable=False) # Guardamos la hora como string para simplicidad, o podrías usar Time
 
 # Asegura que las tablas se creen si no existen
-# Mueve la llamada a create_tables() aquí, fuera del if __name__ == '__main__':
-# Esto garantiza que se ejecute cuando Gunicorn carga la aplicación.
 def create_tables():
     print("INFO: Intentando crear tablas de la base de datos...")
     Base.metadata.create_all(engine)
     print("INFO: Creación de tablas intentada.")
-
-create_tables() # <--- ¡IMPORTANTE! Mover esta llamada aquí.
 
 # Función para limpiar y formatear RUT
 def clean_rut(rut):
@@ -259,6 +255,14 @@ def load_initial_data_from_excel_to_db():
         session = Session()
         for index, row in df_alumnos_excel.iterrows():
             rut = clean_rut(str(row.get('Documento', '')))
+            
+            # --- ¡IMPORTANTE! Agregamos esta verificación para evitar duplicados ---
+            existing_alumno = session.query(Alumno).filter_by(Documento=rut).first()
+            if existing_alumno:
+                print(f"INFO: Alumno con RUT {rut} ya existe. Saltando inserción para evitar duplicados.")
+                continue # Saltar esta fila si el alumno ya existe
+            # ---------------------------------------------------------------------
+
             fecha_curso = row.get('FechaDeCurso')
             if pd.isna(fecha_curso):
                 fecha_curso = None
@@ -270,8 +274,6 @@ def load_initial_data_from_excel_to_db():
                 except (ValueError, TypeError):
                     fecha_curso = None
 
-            # Asegúrate de que los nombres de columna del Excel coincidan o mapeen correctamente
-            # por ejemplo, 'Teléfono' en Excel a 'Telefono' en el modelo
             alumno = Alumno(
                 Tipo_documento=row.get('Tipo documento'),
                 Documento=rut,
@@ -279,14 +281,14 @@ def load_initial_data_from_excel_to_db():
                 ApellidoM=row.get('ApellidoM'),
                 ApellidoP=row.get('ApellidoP'),
                 Mail=row.get('Mail'),
-                Telefono=row.get('Teléfono'), # Esto mapea desde 'Teléfono' en tu Excel
+                Telefono=row.get('Teléfono'),
                 Producto=row.get('Producto'),
                 RutEmpresa=row.get('RutEmpresa'),
                 Asistencia=int(row.get('Asistencia', 0)),
                 Nota=row.get('Nota'),
                 FechaDeCurso=fecha_curso,
                 Solicitud=row.get('Solicitud'),
-                N_OP=row.get('N° OP') # Esto mapea desde 'N° OP' en tu Excel
+                N_OP=row.get('N° OP')
             )
             session.add(alumno)
         session.commit()
@@ -297,7 +299,11 @@ def load_initial_data_from_excel_to_db():
     finally:
         session.close()
 
+# Esto es lo que Gunicorn ejecutará al cargar tu aplicación
+create_tables() # Siempre se ejecuta para crear tablas si no existen
+load_initial_data_from_excel_to_db() # <--- ¡IMPORTANTE! Mover esta llamada aquí para que se ejecute en Render.
+
 if __name__ == '__main__':
     # Esta parte solo se ejecuta si corres 'python app.py' directamente
-    # La creación de tablas ya se maneja fuera de este bloque para Render
+    # La creación de tablas y la carga de datos ya se manejan fuera de este bloque para Render
     app.run(debug=True, port=os.getenv('PORT', 5000))
