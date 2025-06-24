@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asistencia Registrada</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+</head>
+<body>
+    <div class="container">
+        <h1>¡Asistencia Registrada con Éxito!</h1>
+        <p>Alumno: <span id="alumnoNombre"></span></p>
+        <p>Fecha: <span id="fechaAsistencia"></span></p>
+        <p>Hora: <span id="horaAsistencia"></span></p>
+        <a href="/">Volver al inicio</a>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            document.getElementById('alumnoNombre').textContent = params.get('nombre') || 'Desconocido';
+            document.getElementById('fechaAsistencia').textContent = params.get('fecha') || '';
+            document.getElementById('horaAsistencia').textContent = params.get('hora') || '';
+        });
+    </script>
+</body>
+</html>

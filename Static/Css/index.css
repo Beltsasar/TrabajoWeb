@@ -1,0 +1,20 @@
+/* static/css/index.css */
+
+.container {
+    max-width: 500px; /* Make the form container a bit smaller */
+}
+
+#attendanceForm {
+    align-items: stretch; /* Stretch form elements to full width */
+}
+
+#rut {
+    text-align: center; /* Center the RUT input text */
+    font-size: 1.2rem;
+    padding: 15px;
+}
+
+#message {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
